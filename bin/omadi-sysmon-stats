@@ -1,0 +1,128 @@
+#!/bin/bash
+# omadi-sysmon-stats — emit one JSON object with hardware stats for OmaDi.sysmon.
+# No sudo required. Missing sensors degrade to -1 / "" so the QML side shows "--".
+set -u
+
+json_escape() {
+  local s="${1:-}"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
+}
+
+# ---- CPU temp (C) ----
+cpu_temp="-1"
+if command -v sensors >/dev/null 2>&1; then
+  # Prefer JSON output when jq exists.
+  if command -v jq >/dev/null 2>&1; then
+    cpu_temp=$(sensors -j 2>/dev/null | jq -r '
+      [ .. | objects | to_entries[] | select(.key | test("Package id 0|Tctl|CPU")) | .value |
+        .. | objects | .temp1_input? // empty ] | map(tonumber? // empty) | max // -1')
+  fi
+  if [[ -z "${cpu_temp:-}" || "$cpu_temp" == "-1" || "$cpu_temp" == "null" ]]; then
+    cpu_temp=$(sensors 2>/dev/null | awk '/Package id 0:/ { gsub(/[^0-9.]/, "", $4); print $4; exit }')
+  fi
+fi
+# Fallback: hottest thermal zone that looks like CPU/package.
+if [[ -z "${cpu_temp:-}" || "$cpu_temp" == "-1" ]]; then
+  max_t=""
+  for z in /sys/class/thermal/thermal_zone*; do
+    [[ -f "$z/type" && -f "$z/temp" ]] || continue
+    t=$(cat "$z/type" 2>/dev/null)
+    case "$t" in x86_pkg_temp|coretemp|cpu*|soc*) ;;
+    *) continue ;;
+    esac
+    raw=$(cat "$z/temp" 2>/dev/null)
+    [[ "$raw" =~ ^[0-9]+$ ]] || continue
+    c=$(awk -v r="$raw" 'BEGIN { printf "%.1f", r/1000 }')
+    if [[ -z "$max_t" ]] || awk -v a="$c" -v b="$max_t" 'BEGIN { exit !(a > b) }'; then
+      max_t="$c"
+    fi
+  done
+  [[ -n "${max_t:-}" ]] && cpu_temp="$max_t"
+fi
+[[ "$cpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || cpu_temp="-1"
+
+# ---- CPU usage % (two /proc/stat snapshots) ----
+cpu_pct="-1"
+if [[ -r /proc/stat ]]; then
+  read -r _ a b c d e f g h _ < /proc/stat
+  idle1=${d:-0}; total1=$(( ${a:-0} + ${b:-0} + ${c:-0} + ${d:-0} + ${e:-0} + ${f:-0} + ${g:-0} + ${h:-0} ))
+  sleep 0.4
+  read -r _ a b c d e f g h _ < /proc/stat
+  idle2=${d:-0}; total2=$(( ${a:-0} + ${b:-0} + ${c:-0} + ${d:-0} + ${e:-0} + ${f:-0} + ${g:-0} + ${h:-0} ))
+  cpu_pct=$(awk -v i1="$idle1" -v t1="$total1" -v i2="$idle2" -v t2="$total2" \
+    'BEGIN { dt=t2-t1; di=i2-i1; if (dt<=0) print -1; else printf "%.0f", (1-di/dt)*100 }')
+fi
+
+# ---- Memory ----
+mem_total_kb=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null)
+mem_avail_kb=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null)
+if [[ -n "${mem_total_kb:-}" && -n "${mem_avail_kb:-}" && "$mem_total_kb" -gt 0 ]]; then
+  mem_used_kb=$(( mem_total_kb - mem_avail_kb ))
+  mem_pct=$(awk -v u="$mem_used_kb" -v t="$mem_total_kb" 'BEGIN { printf "%.0f", u/t*100 }')
+  mem_used=$(awk -v k="$mem_used_kb" 'BEGIN { printf "%.1fGB", k/1024/1024 }')
+  mem_total=$(awk -v k="$mem_total_kb" 'BEGIN { printf "%.0fGB", k/1024/1024 }')
+else
+  mem_pct="-1"; mem_used=""; mem_total=""
+fi
+
+# ---- Load ----
+load1=$(awk '{ print $1 }' /proc/loadavg 2>/dev/null)
+
+# ---- Disk (root filesystem) ----
+disk_pct="-1"; disk_avail=""; disk_mount="/"
+if command -v df >/dev/null 2>&1; then
+  # shellcheck disable=SC2016
+  read -r dpct davail dmnt < <(df -B1 --output=pcent,avail,target / 2>/dev/null | tail -n 1 | awk '{ gsub(/%/, "", $1); print $1, $2, $3 }')
+  [[ -n "${dpct:-}" ]] && disk_pct="$dpct"
+  if [[ -n "${davail:-}" && "$davail" =~ ^[0-9]+$ ]]; then
+    disk_avail=$(awk -v b="$davail" 'BEGIN { if (b>=1073741824) printf "%.0fG free", b/1073741824; else if (b>=1048576) printf "%.0fM free", b/1048576; else printf "%dB free", b }')
+  fi
+  [[ -n "${dmnt:-}" ]] && disk_mount="$dmnt"
+fi
+
+# ---- Fan RPM ----
+fan_rpm="-1"
+if command -v sensors >/dev/null 2>&1; then
+  fan_rpm=$(sensors 2>/dev/null | awk '/RPM/ { for (i=1;i<=NF;i++) if ($i=="RPM") { print $(i-1); exit } }')
+fi
+[[ "$fan_rpm" =~ ^[0-9]+$ ]] || fan_rpm="-1"
+
+# ---- Battery temp + voltage ----
+batt_temp="-1"; batt_volt=""
+if command -v sensors >/dev/null 2>&1; then
+  if command -v jq >/dev/null 2>&1; then
+    batt_temp=$(sensors -j 2>/dev/null | jq -r '[ .. | objects | .temp1_input? // empty ] | map(tonumber? // empty) | max // -1')
+    # Prefer the BAT0 adapter value over CPU package temps: re-query scoped to acpi adapters.
+    scoped=$(sensors -j 2>/dev/null | jq -r '. | to_entries[] | select(.key | test("BAT|acpi")) | .. | objects | .temp1_input? // empty' 2>/dev/null | head -n 1)
+    [[ -n "${scoped:-}" && "$scoped" != "null" ]] && batt_temp="$scoped"
+  fi
+  if [[ -z "${batt_temp:-}" || "$batt_temp" == "-1" || "$batt_temp" == "null" ]]; then
+    batt_temp=$(sensors 2>/dev/null | awk '/^temp:/ { gsub(/[^0-9.]/, "", $2); print $2; exit }')
+  fi
+  batt_volt=$(sensors 2>/dev/null | awk '/^in0:/ { print $2 $3; exit }')
+fi
+[[ "$batt_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || batt_temp="-1"
+
+# ---- Network totals (all non-lo interfaces) ----
+net_rx="-1"; net_tx="-1"
+if [[ -r /proc/net/dev ]]; then
+  read -r net_rx net_tx < <(awk -F'[: ]+' '/:/ { if ($1 != "lo" && $1 != "Inter-") { rx+=$3; tx+=$11 } } END { print rx+0, tx+0 }' /proc/net/dev)
+fi
+
+# ---- GPU temp (best effort) ----
+gpu_temp="-1"
+if command -v sensors >/dev/null 2>&1; then
+  if command -v jq >/dev/null 2>&1; then
+    gpu_temp=$(sensors -j 2>/dev/null | jq -r '
+      [. | to_entries[] | select(.key | test("amdgpu|nouveau|nvidia|radeon|i915")) | .. | objects | .temp1_input? // empty]
+      | map(tonumber? // empty) | max // -1')
+  fi
+fi
+[[ "$gpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || gpu_temp="-1"
+
+printf '{"cpu_temp_c":%s,"cpu_pct":%s,"mem_pct":%s,"mem_used":"%s","mem_total":"%s","load1":"%s","disk_pct":%s,"disk_avail":"%s","disk_mount":"%s","fan_rpm":%s,"batt_temp_c":%s,"batt_voltage":"%s","net_rx_bytes":%s,"net_tx_bytes":%s,"gpu_temp_c":%s}\n' \
+  "$cpu_temp" "$cpu_pct" "$mem_pct" "$(json_escape "$mem_used")" "$(json_escape "$mem_total")" \
+  "$(json_escape "$load1")" "$disk_pct" "$(json_escape "$disk_avail")" "$(json_escape "$disk_mount")" \
+  "$fan_rpm" "$batt_temp" "$(json_escape "$batt_volt")" "$net_rx" "$net_tx" "$gpu_temp"

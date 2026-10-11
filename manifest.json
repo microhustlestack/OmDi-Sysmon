@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "OmaDi.sysmon",
+  "name": "Sysmon",
+  "version": "0.1.0",
+  "author": "OmaDi",
+  "description": "Hardware monitor: CPU temp/load, memory, disk, fan, battery",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Hardware",
+    "description": "Live hardware dashboard",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
