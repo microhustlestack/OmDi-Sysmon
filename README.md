@@ -24,7 +24,7 @@ Missing sensors degrade gracefully to `--` instead of breaking the panel.
 
 ```bash
 # 1. Clone into your user plugins
-git clone https://github.com/<you>/OmDi-Sysmon.git ~/.config/omarchy/plugins/OmaDi.sysmon
+git clone https://github.com/microhustlestack/OmDi-Sysmon.git ~/.config/omarchy/plugins/OmaDi.sysmon
 
 # 2. Put the stats helper on PATH
 cp ~/.config/omarchy/plugins/OmaDi.sysmon/bin/omadi-sysmon-stats ~/.local/bin/
