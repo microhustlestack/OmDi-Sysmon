@@ -25,6 +25,10 @@ Panel {
   readonly property real memPct: Model.num(stats.mem_pct, -1)
   readonly property real diskPct: Model.num(stats.disk_pct, -1)
   readonly property string tempGlyph: Model.tempIcon(root.cpuTemp)
+  readonly property bool hasData: root.cpuTemp >= 0 || root.cpuPct >= 0
+  readonly property string tooltipSummary: root.hasData
+    ? (Model.formatTemp(root.cpuTemp) + " · CPU " + Model.formatPct(root.cpuPct) + " · Disk " + Model.formatPct(root.diskPct))
+    : "Hardware monitor"
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -71,6 +75,8 @@ Panel {
   }
 
   Timer { interval: 2000; running: root.opened; repeat: true; onTriggered: root.refresh() }
+  // Slow background refresh so the tooltip summary stays fresh while closed.
+  Timer { interval: 15000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refresh() }
 
   BarIconButton {
     id: button
@@ -78,7 +84,7 @@ Panel {
     bar: root.bar
     text: Model.barIcon()
     slotSize: Style.bar.iconSlot
-    tooltipText: "Hardware monitor"
+    tooltipText: root.tooltipSummary
     onPressed: function(b) {
       if (b === Qt.RightButton) root.refresh()
       else root.toggle()

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "OmaDi.sysmon",
   "name": "Sysmon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "OmaDi",
   "description": "Hardware monitor: CPU temp/load, memory, disk, fan, battery",
   "kinds": [
