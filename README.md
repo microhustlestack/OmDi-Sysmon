@@ -10,7 +10,7 @@ fan speed, battery, and network throughput.
 
 - **Hero row** — CPU temperature, CPU %, load average
 - **Usage bars** — CPU / MEM / DISK with live progress bars
-- **Details grid** — fan RPM, battery temp + voltage, GPU temp, network up/down rates
+- **Details grid** — fan RPM, battery charge/temp + voltage, GPU temp, network up/down rates
 - **Disk section** — mount point, free space, lifetime network totals
 
 Missing sensors degrade gracefully to `--` instead of breaking the panel.

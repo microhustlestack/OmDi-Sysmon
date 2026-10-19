@@ -89,19 +89,33 @@ if command -v sensors >/dev/null 2>&1; then
 fi
 [[ "$fan_rpm" =~ ^[0-9]+$ ]] || fan_rpm="-1"
 
-# ---- Battery temp + voltage ----
-batt_temp="-1"; batt_volt=""
-if command -v sensors >/dev/null 2>&1; then
-  if command -v jq >/dev/null 2>&1; then
-    batt_temp=$(sensors -j 2>/dev/null | jq -r '[ .. | objects | .temp1_input? // empty ] | map(tonumber? // empty) | max // -1')
-    # Prefer the BAT0 adapter value over CPU package temps: re-query scoped to acpi adapters.
-    scoped=$(sensors -j 2>/dev/null | jq -r '. | to_entries[] | select(.key | test("BAT|acpi")) | .. | objects | .temp1_input? // empty' 2>/dev/null | head -n 1)
-    [[ -n "${scoped:-}" && "$scoped" != "null" ]] && batt_temp="$scoped"
+# ---- Battery (real battery from power_supply; degrades to none on desktops) ----
+batt_temp="-1"; batt_volt=""; batt_pct="-1"; batt_status=""
+bat_dir=""
+for d in /sys/class/power_supply/BAT*; do
+  [[ -r "$d/capacity" || -r "$d/uevent" ]] && { bat_dir="$d"; break; }
+done
+if [[ -n "$bat_dir" ]]; then
+  if [[ -r "$bat_dir/capacity" ]]; then
+    read -r raw < "$bat_dir/capacity" 2>/dev/null
+    [[ "$raw" =~ ^[0-9]+$ ]] && batt_pct="$raw"
   fi
-  if [[ -z "${batt_temp:-}" || "$batt_temp" == "-1" || "$batt_temp" == "null" ]]; then
-    batt_temp=$(sensors 2>/dev/null | awk '/^temp:/ { gsub(/[^0-9.]/, "", $2); print $2; exit }')
+  [[ -r "$bat_dir/status" ]] && { read -r batt_status < "$bat_dir/status" 2>/dev/null; }
+  # Some batteries expose temp (deci-degC) and voltage (microvolts) via uevent.
+  if [[ -r "$bat_dir/uevent" ]]; then
+    btemp=$(grep -m1 '^POWER_SUPPLY_TEMP=' "$bat_dir/uevent" 2>/dev/null | cut -d= -f2)
+    bvolt=$(grep -m1 '^POWER_SUPPLY_VOLTAGE_NOW=' "$bat_dir/uevent" 2>/dev/null | cut -d= -f2)
+    if [[ "$btemp" =~ ^-?[0-9]+$ ]]; then
+      batt_temp=$(awk -v t="$btemp" 'BEGIN { printf "%.1f", t/10 }')
+    fi
+    if [[ "$bvolt" =~ ^[0-9]+$ ]]; then
+      batt_volt=$(awk -v v="$bvolt" 'BEGIN { printf "%.2fV", v/1000000 }')
+    fi
   fi
-  batt_volt=$(sensors 2>/dev/null | awk '/^in0:/ { print $2 $3; exit }')
+fi
+if [[ -n "$bat_dir" && "$batt_temp" == "-1" ]] && command -v sensors >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  scoped=$(sensors -j 2>/dev/null | jq -r '[ . | to_entries[] | select(.key | test("BAT")) | .. | objects | .temp1_input? // empty ] | map(tonumber? // empty) | max // empty' 2>/dev/null)
+  [[ -n "$scoped" ]] && batt_temp="$scoped"
 fi
 [[ "$batt_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || batt_temp="-1"
 
@@ -122,7 +136,7 @@ if command -v sensors >/dev/null 2>&1; then
 fi
 [[ "$gpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || gpu_temp="-1"
 
-printf '{"cpu_temp_c":%s,"cpu_pct":%s,"mem_pct":%s,"mem_used":"%s","mem_total":"%s","load1":"%s","disk_pct":%s,"disk_avail":"%s","disk_mount":"%s","fan_rpm":%s,"batt_temp_c":%s,"batt_voltage":"%s","net_rx_bytes":%s,"net_tx_bytes":%s,"gpu_temp_c":%s}\n' \
+printf '{"cpu_temp_c":%s,"cpu_pct":%s,"mem_pct":%s,"mem_used":"%s","mem_total":"%s","load1":"%s","disk_pct":%s,"disk_avail":"%s","disk_mount":"%s","fan_rpm":%s,"batt_temp_c":%s,"batt_voltage":"%s","batt_pct":%s,"batt_status":"%s","net_rx_bytes":%s,"net_tx_bytes":%s,"gpu_temp_c":%s}\n' \
   "$cpu_temp" "$cpu_pct" "$mem_pct" "$(json_escape "$mem_used")" "$(json_escape "$mem_total")" \
   "$(json_escape "$load1")" "$disk_pct" "$(json_escape "$disk_avail")" "$(json_escape "$disk_mount")" \
-  "$fan_rpm" "$batt_temp" "$(json_escape "$batt_volt")" "$net_rx" "$net_tx" "$gpu_temp"
+  "$fan_rpm" "$batt_temp" "$(json_escape "$batt_volt")" "$batt_pct" "$(json_escape "$batt_status")" "$net_rx" "$net_tx" "$gpu_temp"

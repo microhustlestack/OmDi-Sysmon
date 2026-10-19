@@ -14,6 +14,8 @@ function parseStats(raw) {
     fan_rpm: -1,
     batt_temp_c: -1,
     batt_voltage: "",
+    batt_pct: -1,
+    batt_status: "",
     net_rx_bytes: -1,
     net_tx_bytes: -1,
     gpu_temp_c: -1
