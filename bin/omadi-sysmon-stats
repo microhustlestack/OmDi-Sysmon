@@ -90,12 +90,13 @@ fi
 [[ "$fan_rpm" =~ ^[0-9]+$ ]] || fan_rpm="-1"
 
 # ---- Battery (real battery from power_supply; degrades to none on desktops) ----
-batt_temp="-1"; batt_volt=""; batt_pct="-1"; batt_status=""
+batt_temp="-1"; batt_volt=""; batt_pct="-1"; batt_status=""; batt_present=0
 bat_dir=""
 for d in /sys/class/power_supply/BAT*; do
   [[ -r "$d/capacity" || -r "$d/uevent" ]] && { bat_dir="$d"; break; }
 done
 if [[ -n "$bat_dir" ]]; then
+  batt_present=1
   if [[ -r "$bat_dir/capacity" ]]; then
     read -r raw < "$bat_dir/capacity" 2>/dev/null
     [[ "$raw" =~ ^[0-9]+$ ]] && batt_pct="$raw"
@@ -136,7 +137,7 @@ if command -v sensors >/dev/null 2>&1; then
 fi
 [[ "$gpu_temp" =~ ^[0-9]+(\.[0-9]+)?$ ]] || gpu_temp="-1"
 
-printf '{"cpu_temp_c":%s,"cpu_pct":%s,"mem_pct":%s,"mem_used":"%s","mem_total":"%s","load1":"%s","disk_pct":%s,"disk_avail":"%s","disk_mount":"%s","fan_rpm":%s,"batt_temp_c":%s,"batt_voltage":"%s","batt_pct":%s,"batt_status":"%s","net_rx_bytes":%s,"net_tx_bytes":%s,"gpu_temp_c":%s}\n' \
+printf '{"cpu_temp_c":%s,"cpu_pct":%s,"mem_pct":%s,"mem_used":"%s","mem_total":"%s","load1":"%s","disk_pct":%s,"disk_avail":"%s","disk_mount":"%s","fan_rpm":%s,"batt_present":%s,"batt_temp_c":%s,"batt_voltage":"%s","batt_pct":%s,"batt_status":"%s","net_rx_bytes":%s,"net_tx_bytes":%s,"gpu_temp_c":%s}\n' \
   "$cpu_temp" "$cpu_pct" "$mem_pct" "$(json_escape "$mem_used")" "$(json_escape "$mem_total")" \
   "$(json_escape "$load1")" "$disk_pct" "$(json_escape "$disk_avail")" "$(json_escape "$disk_mount")" \
-  "$fan_rpm" "$batt_temp" "$(json_escape "$batt_volt")" "$batt_pct" "$(json_escape "$batt_status")" "$net_rx" "$net_tx" "$gpu_temp"
+  "$fan_rpm" "$batt_present" "$batt_temp" "$(json_escape "$batt_volt")" "$batt_pct" "$(json_escape "$batt_status")" "$net_rx" "$net_tx" "$gpu_temp"

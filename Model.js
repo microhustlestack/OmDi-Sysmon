@@ -12,6 +12,7 @@ function parseStats(raw) {
     disk_avail: "",
     disk_mount: "/",
     fan_rpm: -1,
+    batt_present: 0,
     batt_temp_c: -1,
     batt_voltage: "",
     batt_pct: -1,

@@ -194,7 +194,7 @@ Panel {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
             InfoPair { label: "Fan"; value: Model.formatRpm(stats.fan_rpm) }
-            InfoPair { label: "Battery"; value: Model.num(stats.batt_pct, -1) >= 0 ? Model.formatPct(stats.batt_pct) : Model.formatTemp(Model.num(stats.batt_temp_c, -1)) }
+            InfoPair { label: "Battery"; visible: Model.num(stats.batt_present, 0) === 1; value: Model.num(stats.batt_pct, -1) >= 0 ? Model.formatPct(stats.batt_pct) : Model.formatTemp(Model.num(stats.batt_temp_c, -1)) }
             InfoPair { label: "GPU temp"; value: Model.formatTemp(Model.num(stats.gpu_temp_c, -1)) }
           }
 
@@ -203,7 +203,7 @@ Panel {
             spacing: Style.spacing.labelGap
             InfoPair { label: "Download"; value: root.hasRate ? Model.formatRate(root.downRate) : "--" }
             InfoPair { label: "Upload"; value: root.hasRate ? Model.formatRate(root.upRate) : "--" }
-            InfoPair { label: "Battery V"; value: stats.batt_voltage || "--" }
+            InfoPair { label: "Battery V"; visible: Model.num(stats.batt_present, 0) === 1; value: stats.batt_voltage || "--" }
           }
         }
 

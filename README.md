@@ -14,6 +14,7 @@ fan speed, battery, and network throughput.
 - **Disk section** — mount point, free space, lifetime network totals
 
 Missing sensors degrade gracefully to `--` instead of breaking the panel.
+Battery rows are detected automatically and hidden on desktops with no battery.
 
 ## Requirements
 
